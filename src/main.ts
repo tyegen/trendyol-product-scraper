@@ -26,33 +26,29 @@ let productCount = 0;
  */
 function formatProduct(p: any, url: string) {
     // === PRICE ===
-    // Category listing: p.price could be {discountedPrice: {text}, sellingPrice: {text}}
-    //                   p.singlePrice could be {text, value}
-    // Detail page: variants[0].price = {value, text} (flat)
+    // Category: singlePrice.salePrice = "19.056,05 TL"
+    //           price.discountedPrice = 19056.05 (NUMBER, not object!)
+    //           price.discountedPriceText = "19.056,05"
+    // Detail:   variants[0].price = {value, text}
     let price = '';
     let priceValue: number | null = null;
     
-    // Try singlePrice first (category listing shortcut)
-    if (p.singlePrice?.text) {
-        price = p.singlePrice.text;
-        priceValue = p.singlePrice.value;
+    // Path 1: singlePrice.salePrice (category - best, includes currency)
+    if (p.singlePrice?.salePrice) {
+        price = p.singlePrice.salePrice;
+        priceValue = typeof p.price?.discountedPrice === 'number' ? p.price.discountedPrice : null;
     }
-    // Try price.text (flat)
+    // Path 2: price.discountedPriceText (category - fallback)  
+    else if (p.price?.discountedPriceText) {
+        price = p.price.discountedPriceText + ' ' + (p.price.currencySymbol || 'TL');
+        priceValue = typeof p.price.discountedPrice === 'number' ? p.price.discountedPrice : null;
+    }
+    // Path 3: price.text (flat - detail page variant)
     else if (p.price?.text) {
         price = p.price.text;
         priceValue = p.price.value;
     }
-    // Try price.discountedPrice.text (nested)
-    else if (p.price?.discountedPrice?.text) {
-        price = p.price.discountedPrice.text;
-        priceValue = p.price.discountedPrice.value;
-    }
-    // Try price.sellingPrice.text (nested)
-    else if (p.price?.sellingPrice?.text) {
-        price = p.price.sellingPrice.text;
-        priceValue = p.price.sellingPrice.value;
-    }
-    // Try variants[0].price (detail page)
+    // Path 4: variants[0].price.text (detail page)
     else if (p.variants?.[0]?.price?.text) {
         price = p.variants[0].price.text;
         priceValue = p.variants[0].price.value;
@@ -208,8 +204,6 @@ const crawler = new PlaywrightCrawler({
 
         if (categoryData.products && categoryData.products.length > 0) {
             log.info(`[CATEGORY] Found ${categoryData.products.length} products in ${categoryData.source}`);
-            const p0 = categoryData.products[0];
-            log.info(`[DEBUG] price: ${JSON.stringify(p0.price)}, singlePrice: ${JSON.stringify(p0.singlePrice)}, ratingScore: ${JSON.stringify(p0.ratingScore)}`);
             
             const remaining = maxItems - productCount;
             const productsToSave = categoryData.products.slice(0, remaining);
