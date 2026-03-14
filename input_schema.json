@@ -24,8 +24,13 @@
             "title": "Proxy Configuration",
             "type": "object",
             "description": "Choose your proxy settings. TR residential proxies are highly recommended.",
-            "editor": "proxy"
+            "editor": "proxy",
+            "prefill": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"],
+                "apifyProxyCountry": "TR"
+            }
         }
     },
-    "required": ["startUrls"]
+    "required": ["startUrls", "proxyConfiguration"]
 }
