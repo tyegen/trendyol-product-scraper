@@ -23,12 +23,10 @@
         "proxyConfiguration": {
             "title": "Proxy Configuration",
             "type": "object",
-            "description": "Choose your proxy settings. TR datacenter proxies are recommended for cost efficiency.",
+            "description": "Choose your proxy settings. Datacenter proxies are recommended for cost efficiency.",
             "editor": "proxy",
             "prefill": {
-                "useApifyProxy": true,
-                "apifyProxyGroups": ["DATACENTER"],
-                "apifyProxyCountry": "TR"
+                "useApifyProxy": true
             }
         }
     },
