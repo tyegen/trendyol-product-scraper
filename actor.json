@@ -1,8 +1,8 @@
 {
     "actorSpecification": 1,
     "name": "trendyol-product-scraper",
-    "title": "Trendyol Product Scraper (Ultra Fast & 90% Cheaper)",
-    "description": "Scrape products from Trendyol.com at lightning speed and 90% lower cost. Extracts prices, brands, ratings, and more directly from category pages.",
+    "title": "Trendyol Product Scraper (Ultra Fast & Efficient)",
+    "description": "Scrape products from Trendyol.com at lightning speed with advanced efficiency. Extracts prices, brands, ratings, and more directly from category pages.",
     "version": "1.0.0",
     "meta": {
         "templateId": "project-empty"

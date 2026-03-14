@@ -1,10 +1,10 @@
 # 🚀 Trendyol Product Scraper (Ultra Fast & 90% Cheaper)
 
-Extract product data from **Trendyol.com** at lightning speed and the lowest possible cost. This scraper is highly optimized using a hybrid approach that extracts data directly from category listing JSON, making it **90% cheaper** and significantly faster than traditional scrapers.
+Extract product data from **Trendyol.com** at lightning speed and with high efficiency. This scraper is highly optimized using a hybrid approach that extracts data directly from category listing JSON, making it significantly faster and more reliable than traditional scrapers.
 
 ## 🌟 Key Features
 
-- **Extreme Cost-Efficiency**: Extracts up to 24 products per request directly from category JSON. 
+- **Extreme Efficiency**: Extracts multiple products simultaneously directly from category JSON. 
 - **Ultra-Fast**: No more navigating through every single product page. 
 - **Smart Data Extraction**: Captures verified prices, brand names, ratings, and image URLs.
 - **Proxy Optimized**: Works perfectly with residential and cost-effective datacenter proxies.
@@ -24,7 +24,7 @@ The scraper extracts the following fields for each product:
 ## 💰 Pricing
 
 - **Pay Per Result**: Only **$10 per 1,000 results** ($0.01 per item).
-- Since the scraper is highly optimized, your compute (CU) costs will be negligible ($0.001 per run).
+- Highly optimized architecture ensures minimal compute resource usage (CU cost).
 
 ## 🛠️ How to Use
 
