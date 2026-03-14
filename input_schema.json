@@ -23,11 +23,11 @@
         "proxyConfiguration": {
             "title": "Proxy Configuration",
             "type": "object",
-            "description": "Choose your proxy settings. TR residential proxies are highly recommended.",
+            "description": "Choose your proxy settings. TR datacenter proxies are recommended for cost efficiency.",
             "editor": "proxy",
             "prefill": {
                 "useApifyProxy": true,
-                "apifyProxyGroups": ["RESIDENTIAL"],
+                "apifyProxyGroups": ["DATACENTER"],
                 "apifyProxyCountry": "TR"
             }
         }
