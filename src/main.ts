@@ -208,6 +208,8 @@ const crawler = new PlaywrightCrawler({
 
         if (categoryData.products && categoryData.products.length > 0) {
             log.info(`[CATEGORY] Found ${categoryData.products.length} products in ${categoryData.source}`);
+            const p0 = categoryData.products[0];
+            log.info(`[DEBUG] price: ${JSON.stringify(p0.price)}, singlePrice: ${JSON.stringify(p0.singlePrice)}, ratingScore: ${JSON.stringify(p0.ratingScore)}`);
             
             const remaining = maxItems - productCount;
             const productsToSave = categoryData.products.slice(0, remaining);
