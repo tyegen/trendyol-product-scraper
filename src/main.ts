@@ -140,22 +140,11 @@ const crawler = new PlaywrightCrawler({
                 if (products && products.length > 0) {
                     return {
                         source: key,
-                        products: products.map((p: any) => ({
-                            id: p.id,
-                            name: p.name,
-                            brand: p.brand,
-                            brandName: p.brandName,
-                            price: p.price,
-                            imageUrl: p.imageUrl || p.image || p.images?.[0],
-                            merchantName: p.merchantName,
-                            merchantId: p.merchantId,
-                            categoryName: p.categoryName,
-                            categoryHierarchy: p.categoryHierarchy,
-                            ratingScore: p.ratingScore,
-                            favoriteCount: p.favoriteCount,
-                            inStock: p.inStock,
-                            url: p.url,
-                        })),
+                        // Pass first product's keys for debugging
+                        firstProductKeys: Object.keys(products[0]),
+                        firstProductSample: JSON.stringify(products[0]).substring(0, 1000),
+                        // Pass ALL raw product data through
+                        products,
                     };
                 }
             }
@@ -167,6 +156,8 @@ const crawler = new PlaywrightCrawler({
         if (categoryData.products && categoryData.products.length > 0) {
             // SUCCESS! Extract products directly from category page
             log.info(`[CATEGORY] Found ${categoryData.products.length} products in ${categoryData.source}`);
+            log.info(`[DEBUG] First product keys: ${(categoryData as any).firstProductKeys?.join(', ')}`);
+            log.info(`[DEBUG] First product sample: ${(categoryData as any).firstProductSample}`);
             
             const remaining = maxItems - productCount;
             const productsToSave = categoryData.products.slice(0, remaining);
