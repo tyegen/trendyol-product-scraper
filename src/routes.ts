@@ -45,25 +45,47 @@ router.addHandler('detail', async ({ request, page, log }) => {
     log.info(`[PRODUCT] Extracting: ${request.url}`);
 
     try {
-        // Wait for main elements to load
-        await page.waitForSelector('.pr-new-br', { timeout: 15000 });
-
-        // Extract basic data
-        const title = await page.evaluate(() => {
-            const el1 = document.querySelector('h1.pr-new-br span');
-            const el2 = document.querySelector('h1');
-            return el1 ? el1.textContent?.trim() : (el2 ? el2.textContent?.trim() : '');
+        // Wait for h1 (the product title) instead of a specific class
+        await page.waitForSelector('h1', { timeout: 15000 }).catch(() => {
+            log.warning(`[PRODUCT] h1 tag didn't load for ${request.url}`);
         });
 
-        const brand = await page.evaluate(() => {
-            const el = document.querySelector('.pr-new-br a');
-            return el ? el.textContent?.trim() : '';
+        // Debug: Dump product HTML
+        const detailHtml = await page.evaluate(() => document.body.innerHTML);
+        await Actor.setValue('debug-detail-html', detailHtml, { contentType: 'text/html' });
+
+        // Extract basic data
+        const titleAndBrand = await page.evaluate(() => {
+            const h1 = document.querySelector('h1');
+            const h1Clone = h1 ? h1.cloneNode(true) as HTMLElement : null;
+            
+            // Typical Trendyol structure: <h1> <a href="...">Brand</a> Title text </h1>
+            let brand = '';
+            let title = h1 ? h1.textContent?.trim() || '' : '';
+            
+            if (h1Clone) {
+                const brandEl = h1Clone.querySelector('a');
+                if (brandEl) {
+                    brand = brandEl.textContent?.trim() || '';
+                    title = h1Clone.textContent?.replace(brand, '').trim() || title;
+                } else if (h1Clone.querySelector('span')) {
+                    brand = h1Clone.querySelector('span')?.textContent?.trim() || '';
+                }
+            }
+            return { title, brand };
         });
 
         const priceStr = await page.evaluate(() => {
-            const el1 = document.querySelector('.prc-dsc');
-            const el2 = document.querySelector('.prc-slg');
-            return el1 ? el1.textContent?.trim() : (el2 ? el2.textContent?.trim() : '');
+            // Find anything that looks like price
+            const els = Array.from(document.querySelectorAll('span, div'))
+                .filter(el => el.textContent?.includes('TL') && el.className.includes('prc'));
+            
+            for (const el of els) {
+                if (el.className.includes('slg') || el.className.includes('dsc')) {
+                    return el.textContent?.trim();
+                }
+            }
+            return els.length > 0 ? els[0].textContent?.trim() : '';
         });
         
         // Product ID is usually in the URL (...-p-12345)
@@ -72,9 +94,8 @@ router.addHandler('detail', async ({ request, page, log }) => {
 
         // Seller information
         const sellerInfo = await page.evaluate(() => {
-            const nameEl = document.querySelector('.merchant-text') || document.querySelector('.merchant-box-wrapper a');
-            const linkEl = document.querySelector('.merchant-box-wrapper a');
-            const name = nameEl ? nameEl.textContent?.trim() : null;
+            const linkEl = document.querySelector('a[href*="merchantId="]');
+            const name = linkEl ? linkEl.textContent?.trim() : null;
             let id = null;
             if (linkEl) {
                 const href = linkEl.getAttribute('href');
@@ -86,25 +107,25 @@ router.addHandler('detail', async ({ request, page, log }) => {
 
         // Images
         const images = await page.evaluate(() => {
-            const imgs = Array.from(document.querySelectorAll('.gallery-modal-content img, .product-image-container img'));
+            const imgs = Array.from(document.querySelectorAll('img'));
             return imgs.map(img => img.getAttribute('src'))
-                .filter(src => src && !src.includes('ty.gl'))
+                .filter(src => src && src.includes('product/media/images'))
                 .map(src => src!.startsWith('http') ? src! : `https://cdn.dsmcdn.com${src}`);
         });
 
         // Push extracted data to Apify dataset
-        if (title && priceStr) {
+        if (titleAndBrand.title && priceStr) {
             await Actor.pushData({
                 url: request.url,
                 productId,
-                title,
-                brand,
+                title: titleAndBrand.title,
+                brand: titleAndBrand.brand,
                 price: priceStr,
                 seller: sellerInfo,
                 images: [...new Set(images)], // unique images
                 scrapedAt: new Date().toISOString()
             });
-            log.info(`[PRODUCT] Saved: ${brand} - ${title} (${priceStr})`);
+            log.info(`[PRODUCT] Saved: ${titleAndBrand.brand} - ${titleAndBrand.title} (${priceStr})`);
         } else {
             log.warning(`[PRODUCT] Missing title or price for ${request.url}`);
         }
