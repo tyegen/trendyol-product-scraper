@@ -47,93 +47,145 @@ router.addHandler('detail', async ({ request, page, log }) => {
     try {
         // Wait for content to load 
         await page.waitForLoadState('domcontentloaded');
-        await page.waitForTimeout(3000); // Allow hydration scripts to execute
+        await page.waitForTimeout(3000);
 
-        // Extract product data from the embedded JSON blob
-        // Trendyol embeds all product data in: window["__envoy_product-detail__PROPS"]
-        const productData = await page.evaluate(() => {
+        // STEP 1: Dump the full product object structure for debugging
+        const debugInfo = await page.evaluate(() => {
             const w = window as any;
-            // Try the envoy props first (new structure)
             const propsKey = '__envoy_product-detail__PROPS';
             const props = w[propsKey];
             
-            if (props && props.product) {
-                const p = props.product;
-                // Price can be at product.price OR product.variants[0].price
-                const priceObj = p.price || (p.variants && p.variants[0]?.price) || {};
-                return {
-                    name: p.name || '',
-                    brand: p.brand?.name || '',
-                    price: priceObj.discountedPrice?.text || priceObj.sellingPrice?.text || '',
-                    priceValue: priceObj.discountedPrice?.value || priceObj.sellingPrice?.value || null,
-                    originalPrice: priceObj.originalPrice?.text || '',
-                    productId: String(p.id || ''),
-                    contentId: String(p.contentId || ''),
-                    images: (p.images || []).map((url: string) => 
-                        url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
-                    ),
-                    seller: {
-                        name: p.merchant?.name || null,
-                        id: String(p.merchant?.id || ''),
-                    },
-                    category: p.category?.name || '',
-                    ratingScore: p.ratingScore || null,
-                    found: true,
-                };
+            if (!props) {
+                // List all window keys containing PROPS
+                const allKeys = Object.keys(w).filter(k => k.includes('PROPS'));
+                return { error: 'envoy_product-detail__PROPS not found', availableKeys: allKeys };
             }
             
-            // Fallback: search all window props for product data
-            for (const key of Object.keys(w)) {
-                if (key.includes('PROPS') && w[key]?.product) {
-                    const p = w[key].product;
-                    const priceObj = p.price || (p.variants && p.variants[0]?.price) || {};
-                    return {
-                        name: p.name || '',
-                        brand: p.brand?.name || '',
-                        price: priceObj.discountedPrice?.text || priceObj.sellingPrice?.text || '',
-                        priceValue: priceObj.discountedPrice?.value || priceObj.sellingPrice?.value || null,
-                        originalPrice: priceObj.originalPrice?.text || '',
-                        productId: String(p.id || ''),
-                        contentId: String(p.contentId || ''),
-                        images: (p.images || []).map((url: string) => 
-                            url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
-                        ),
-                        seller: {
-                            name: p.merchant?.name || null,
-                            id: String(p.merchant?.id || ''),
-                        },
-                        category: p.category?.name || '',
-                        ratingScore: p.ratingScore || null,
-                        found: true,
-                    };
+            if (!props.product) {
+                return { error: 'product not found in props', propsKeys: Object.keys(props) };
+            }
+            
+            const p = props.product;
+            return {
+                productKeys: Object.keys(p),
+                hasPrice: !!p.price,
+                priceKeys: p.price ? Object.keys(p.price) : null,
+                hasVariants: !!p.variants,
+                variantsLength: p.variants?.length,
+                firstVariantKeys: p.variants?.[0] ? Object.keys(p.variants[0]) : null,
+                firstVariantPriceKeys: p.variants?.[0]?.price ? Object.keys(p.variants[0].price) : null,
+                // Dump actual price data
+                directPrice: p.price || null,
+                variantPrice: p.variants?.[0]?.price || null,
+                // Try all possible price paths
+                name: p.name,
+                brand: p.brand,
+                merchant: p.merchant,
+                category: p.category,
+            };
+        });
+        
+        log.info(`[PRODUCT] Debug info: ${JSON.stringify(debugInfo)}`);
+        await Actor.setValue('debug-product-structure', JSON.stringify(debugInfo, null, 2), { contentType: 'application/json' });
+
+        // STEP 2: Extract product data
+        const productData = await page.evaluate(() => {
+            const w = window as any;
+            const props = w['__envoy_product-detail__PROPS'];
+            
+            if (!props?.product) return null;
+            
+            const p = props.product;
+            
+            // Try ALL possible price locations
+            let priceText = '';
+            let priceValue: number | null = null;
+            let originalPriceText = '';
+            
+            // Path 1: product.price
+            if (p.price?.discountedPrice?.text) {
+                priceText = p.price.discountedPrice.text;
+                priceValue = p.price.discountedPrice.value;
+                originalPriceText = p.price.originalPrice?.text || '';
+            } else if (p.price?.sellingPrice?.text) {
+                priceText = p.price.sellingPrice.text;
+                priceValue = p.price.sellingPrice.value;
+            }
+            
+            // Path 2: product.variants[0].price
+            if (!priceText && p.variants?.length > 0) {
+                const vp = p.variants[0].price;
+                if (vp?.discountedPrice?.text) {
+                    priceText = vp.discountedPrice.text;
+                    priceValue = vp.discountedPrice.value;
+                    originalPriceText = vp.originalPrice?.text || '';
+                } else if (vp?.sellingPrice?.text) {
+                    priceText = vp.sellingPrice.text;
+                    priceValue = vp.sellingPrice.value;
                 }
             }
             
-            return { found: false, name: '', brand: '', price: '', priceValue: null, originalPrice: '', productId: '', contentId: '', images: [], seller: { name: null, id: '' }, category: '', ratingScore: null };
+            // Path 3: product.allVariants
+            if (!priceText && p.allVariants?.length > 0) {
+                const vp = p.allVariants[0].price;
+                if (vp?.discountedPrice?.text) {
+                    priceText = vp.discountedPrice.text;
+                    priceValue = vp.discountedPrice.value;
+                } else if (vp?.sellingPrice?.text) {
+                    priceText = vp.sellingPrice.text;
+                    priceValue = vp.sellingPrice.value;
+                }
+            }
+            
+            return {
+                name: p.name || '',
+                brand: p.brand?.name || '',
+                price: priceText,
+                priceValue,
+                originalPrice: originalPriceText,
+                productId: String(p.id || ''),
+                contentId: String(p.contentId || ''),
+                images: (p.images || []).map((url: string) => 
+                    url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
+                ),
+                seller: {
+                    name: p.merchant?.name || null,
+                    id: String(p.merchant?.id || ''),
+                },
+                category: p.category?.name || '',
+                ratingScore: p.ratingScore || null,
+            };
         });
+
+        if (!productData) {
+            log.warning(`[PRODUCT] No product data found for ${request.url}`);
+            return;
+        }
 
         // Product ID fallback from URL
         const productIdMatch = request.url.match(/-p-(\d+)/);
         const productId = productData.productId || (productIdMatch ? productIdMatch[1] : null);
 
-        if (productData.found && productData.name && productData.price) {
-            await Actor.pushData({
-                url: request.url,
-                productId,
-                title: productData.name,
-                brand: productData.brand,
-                price: productData.price,
-                priceValue: productData.priceValue,
-                originalPrice: productData.originalPrice,
-                seller: productData.seller,
-                category: productData.category,
-                ratingScore: productData.ratingScore,
-                images: [...new Set(productData.images)],
-                scrapedAt: new Date().toISOString()
-            });
+        // Save data even if price is missing (we can fix price later)
+        await Actor.pushData({
+            url: request.url,
+            productId,
+            title: productData.name,
+            brand: productData.brand,
+            price: productData.price || 'N/A',
+            priceValue: productData.priceValue,
+            originalPrice: productData.originalPrice,
+            seller: productData.seller,
+            category: productData.category,
+            ratingScore: productData.ratingScore,
+            images: [...new Set(productData.images)],
+            scrapedAt: new Date().toISOString()
+        });
+
+        if (productData.price) {
             log.info(`[PRODUCT] Saved: ${productData.brand} - ${productData.name} (${productData.price})`);
         } else {
-            log.warning(`[PRODUCT] Missing product data for ${request.url}. Found: ${productData.found}, Name: "${productData.name}", Price: "${productData.price}"`);
+            log.warning(`[PRODUCT] Saved with missing price: ${productData.brand} - ${productData.name}. Check debug-product-structure in KV store.`);
         }
     } catch (e: any) {
         log.error(`[PRODUCT] Failed to extract data for ${request.url}: ${e.message}`);
