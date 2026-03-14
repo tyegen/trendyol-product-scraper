@@ -75,8 +75,8 @@ router.addHandler('detail', async ({ request, page, log }) => {
             ? (firstImage.startsWith('http') ? firstImage : `https://cdn.dsmcdn.com${firstImage}`)
             : '';
         
-        // === SELLER from merchantListing ===
-        const ml = product.merchantListing;
+        // === SELLER from merchantListing.merchant ===
+        const merchant = product.merchantListing?.merchant;
         
         // === PUSH FLAT DATA ===
         await Actor.pushData({
@@ -86,8 +86,8 @@ router.addHandler('detail', async ({ request, page, log }) => {
             brand: product.brand?.name || '',
             price: price || 'N/A',
             priceValue,
-            sellerName: ml?.merchantName || ml?.name || '',
-            sellerId: ml?.merchantId ? String(ml.merchantId) : '',
+            sellerName: merchant?.name || '',
+            sellerId: merchant?.id ? String(merchant.id) : '',
             category: product.category?.name || '',
             categoryHierarchy: product.category?.hierarchy || '',
             ratingAvg: product.ratingScore?.averageRating ? Number(product.ratingScore.averageRating.toFixed(2)) : null,
