@@ -1,5 +1,5 @@
 import { Actor } from 'apify';
-import { PlaywrightCrawler, log, ProxyConfiguration } from 'crawlee';
+import { PlaywrightCrawler, log } from 'crawlee';
 import { gotScraping } from 'crawlee';
 
 log.setLevel(log.LEVELS.INFO);
@@ -18,14 +18,62 @@ const proxyConfig = proxyConfiguration
     ? await Actor.createProxyConfiguration(proxyConfiguration)
     : undefined;
 
+let productCount = 0;
+
 /**
- * FAST product detail extraction via HTTP (gotScraping + Apify proxy).
- * No browser needed - just fetches the HTML and parses the JSON blob.
+ * Extract product listing data from a product object (from either category or detail page)
  */
-async function fetchProduct(url: string): Promise<any | null> {
+function formatProduct(p: any, url: string) {
+    // Price: try flat first, then nested
+    let price = '';
+    let priceValue: number | null = null;
+    
+    if (p.price?.text) {
+        price = p.price.text;
+        priceValue = p.price.value;
+    } else if (p.price?.discountedPrice?.text) {
+        price = p.price.discountedPrice.text;
+        priceValue = p.price.discountedPrice.value;
+    } else if (p.price?.sellingPrice?.text) {
+        price = p.price.sellingPrice.text;
+        priceValue = p.price.sellingPrice.value;
+    }
+    
+    // Thumbnail
+    const rawImages = p.images || p.imageUrl ? [p.imageUrl] : [];
+    const imgList = Array.isArray(p.images) ? p.images : rawImages;
+    const firstImage = imgList[0] || p.imageUrl || '';
+    const thumbnail = firstImage 
+        ? (firstImage.startsWith('http') ? firstImage : `https://cdn.dsmcdn.com${firstImage}`)
+        : '';
+    
+    return {
+        thumbnail,
+        productId: String(p.id || ''),
+        title: p.name || '',
+        brand: p.brand?.name || p.brandName || '',
+        price: price || 'N/A',
+        priceValue,
+        sellerName: p.merchantListing?.merchant?.name || p.merchantName || '',
+        sellerId: p.merchantListing?.merchant?.id ? String(p.merchantListing.merchant.id) : (p.merchantId ? String(p.merchantId) : ''),
+        category: p.category?.name || p.categoryName || '',
+        categoryHierarchy: p.category?.hierarchy || p.categoryHierarchy || '',
+        ratingAvg: p.ratingScore?.averageRating ? Number(p.ratingScore.averageRating.toFixed(2)) : null,
+        ratingCount: p.ratingScore?.totalCount || 0,
+        commentCount: p.ratingScore?.commentCount || 0,
+        favoriteCount: p.favoriteCount || 0,
+        inStock: p.inStock ?? true,
+        url,
+        scrapedAt: new Date().toISOString()
+    };
+}
+
+/**
+ * Fetch a single product detail via HTTP (fallback when category doesn't have full data)
+ */
+async function fetchProductDetail(url: string): Promise<any | null> {
     try {
         const proxyUrl = proxyConfig ? await proxyConfig.newUrl() : undefined;
-        
         const response = await gotScraping({
             url,
             proxyUrl,
@@ -34,91 +82,31 @@ async function fetchProduct(url: string): Promise<any | null> {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             },
         });
-        
         if (response.statusCode !== 200) return null;
-        
         const html = response.body;
         const marker = '__envoy_product-detail__PROPS"]=';
         const idx = html.indexOf(marker);
         if (idx < 0) return null;
-        
         const jsonStart = idx + marker.length;
         const scriptEnd = html.indexOf('</script>', jsonStart);
         if (scriptEnd < 0) return null;
-        
-        const jsonStr = html.substring(jsonStart, scriptEnd);
-        const props = JSON.parse(jsonStr);
+        const props = JSON.parse(html.substring(jsonStart, scriptEnd));
         return props?.product || null;
-    } catch (e: any) {
-        log.warning(`[HTTP] Failed to fetch ${url}: ${e.message}`);
+    } catch {
         return null;
     }
 }
 
-/**
- * Extract and push product data from the raw product object.
- */
-function extractAndPush(product: any, url: string) {
-    // Price: flat structure at variants[0].price = {value, text}
-    let price = '';
-    let priceValue: number | null = null;
-    
-    if (product.price?.text) {
-        price = product.price.text;
-        priceValue = product.price.value;
-    } else if (product.variants?.length > 0) {
-        const vp = product.variants[0].price;
-        if (vp?.text) {
-            price = vp.text;
-            priceValue = vp.value;
-        }
-    }
-    
-    // Product ID from URL
-    const productIdMatch = url.match(/-p-(\d+)/);
-    const productId = String(product.id || '') || (productIdMatch ? productIdMatch[1] : '');
-    
-    // Thumbnail: first image
-    const rawImages = product.images || [];
-    const firstImage = rawImages[0] || '';
-    const thumbnail = firstImage 
-        ? (firstImage.startsWith('http') ? firstImage : `https://cdn.dsmcdn.com${firstImage}`)
-        : '';
-    
-    // Seller from merchantListing.merchant
-    const merchant = product.merchantListing?.merchant;
-    
-    return {
-        thumbnail,
-        productId,
-        title: product.name || '',
-        brand: product.brand?.name || '',
-        price: price || 'N/A',
-        priceValue,
-        sellerName: merchant?.name || '',
-        sellerId: merchant?.id ? String(merchant.id) : '',
-        category: product.category?.name || '',
-        categoryHierarchy: product.category?.hierarchy || '',
-        ratingAvg: product.ratingScore?.averageRating ? Number(product.ratingScore.averageRating.toFixed(2)) : null,
-        ratingCount: product.ratingScore?.totalCount || 0,
-        commentCount: product.ratingScore?.commentCount || 0,
-        favoriteCount: product.favoriteCount || 0,
-        inStock: product.inStock ?? true,
-        url,
-        scrapedAt: new Date().toISOString()
-    };
-}
-
 // ======================================================================
-// ARCHITECTURE: Playwright for category pages ONLY, HTTP for products.
-// This saves ~5-10x in compute cost since products don't need a browser.
+// STRATEGY:
+// 1. Open category page with Playwright (anti-bot)
+// 2. Try to extract ALL product data from category page's window.__PROPS
+// 3. If category only has partial data (no price), fall back to HTTP fetch
+// 4. Paginate if we need more products
 // ======================================================================
-
-let productCount = 0;
 
 const crawler = new PlaywrightCrawler({
     proxyConfiguration: proxyConfig,
-    // Only category pages go through Playwright, so this limits category pages
     maxRequestsPerCrawl: 50,
     requestHandler: async ({ request, page, enqueueLinks }) => {
         log.info(`[CATEGORY] Processing ${request.url}`);
@@ -128,42 +116,114 @@ const crawler = new PlaywrightCrawler({
             log.warning(`[CATEGORY] Product links didn't load for ${request.url}`);
         });
 
-        // Extract product URLs directly from the page
-        const productUrls: string[] = await page.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('.product-card'));
-            return links
-                .map(a => (a as HTMLAnchorElement).href)
-                .filter(href => href && href.includes('-p-'));
+        // STEP 1: Try to find product listing data in window PROPS
+        const categoryData = await page.evaluate(() => {
+            const w = window as any;
+            const keys = Object.keys(w).filter(k => k.includes('PROPS'));
+
+            // Search for any PROPS that contains a product list
+            for (const key of keys) {
+                const val = w[key];
+                if (!val) continue;
+                
+                // Check common patterns for search/listing results
+                // Could be: val.products, val.searchResult, val.result.products, etc.
+                let products: any[] | null = null;
+                
+                if (Array.isArray(val.products)) products = val.products;
+                else if (val.searchResult?.products) products = val.searchResult.products;
+                else if (val.result?.products) products = val.result.products;
+                else if (val.categoryProducts?.products) products = val.categoryProducts.products;
+                else if (val.data?.products) products = val.data.products;
+                else if (val.content?.products) products = val.content.products;
+                
+                if (products && products.length > 0) {
+                    return {
+                        source: key,
+                        products: products.map((p: any) => ({
+                            id: p.id,
+                            name: p.name,
+                            brand: p.brand,
+                            brandName: p.brandName,
+                            price: p.price,
+                            imageUrl: p.imageUrl || p.image || p.images?.[0],
+                            merchantName: p.merchantName,
+                            merchantId: p.merchantId,
+                            categoryName: p.categoryName,
+                            categoryHierarchy: p.categoryHierarchy,
+                            ratingScore: p.ratingScore,
+                            favoriteCount: p.favoriteCount,
+                            inStock: p.inStock,
+                            url: p.url,
+                        })),
+                    };
+                }
+            }
+            
+            // Return all PROPS keys for debugging if no products found
+            return { source: null, propsKeys: keys, products: [] };
         });
 
-        log.info(`[CATEGORY] Found ${productUrls.length} product URLs on ${request.url}`);
+        if (categoryData.products && categoryData.products.length > 0) {
+            // SUCCESS! Extract products directly from category page
+            log.info(`[CATEGORY] Found ${categoryData.products.length} products in ${categoryData.source}`);
+            
+            const remaining = maxItems - productCount;
+            const productsToSave = categoryData.products.slice(0, remaining);
+            
+            for (const p of productsToSave) {
+                // Build product URL from id/name
+                const productUrl = p.url 
+                    ? (p.url.startsWith('http') ? p.url : `https://www.trendyol.com${p.url}`)
+                    : request.url;
+                
+                const data = formatProduct(p, productUrl);
+                await Actor.pushData(data);
+                productCount++;
+                log.info(`[PRODUCT] ✓ ${data.brand} - ${data.title} | ${data.price} (${productCount}/${maxItems})`);
+                
+                if (productCount >= maxItems) break;
+            }
+        } else {
+            // FALLBACK: No product data in PROPS, extract URLs and fetch via HTTP
+            log.info(`[CATEGORY] No product list in PROPS (keys: ${categoryData.propsKeys?.join(', ')}). Falling back to HTTP fetch.`);
+            
+            const productUrls: string[] = await page.evaluate(() => {
+                const links = Array.from(document.querySelectorAll('.product-card'));
+                return links
+                    .map(a => (a as HTMLAnchorElement).href)
+                    .filter(href => href && href.includes('-p-'));
+            });
 
-        // Fetch products via fast HTTP (no browser!)
-        const remaining = maxItems - productCount;
-        const urlsToFetch = productUrls.slice(0, remaining);
-        
-        // Fetch in parallel batches of 5 for speed
-        const batchSize = 5;
-        for (let i = 0; i < urlsToFetch.length && productCount < maxItems; i += batchSize) {
-            const batch = urlsToFetch.slice(i, i + batchSize);
-            const results = await Promise.allSettled(
-                batch.map(async (url) => {
-                    const product = await fetchProduct(url);
-                    if (product) {
-                        const data = extractAndPush(product, url);
-                        await Actor.pushData(data);
-                        productCount++;
-                        log.info(`[PRODUCT] ✓ ${data.brand} - ${data.title} | ${data.price} (${productCount}/${maxItems})`);
-                    } else {
-                        log.warning(`[PRODUCT] ✗ Failed to extract: ${url}`);
-                    }
-                })
-            );
+            const remaining = maxItems - productCount;
+            const urlsToFetch = productUrls.slice(0, remaining);
+            
+            // Fetch in parallel batches of 5
+            const batchSize = 5;
+            for (let i = 0; i < urlsToFetch.length && productCount < maxItems; i += batchSize) {
+                const batch = urlsToFetch.slice(i, i + batchSize);
+                await Promise.allSettled(
+                    batch.map(async (url) => {
+                        if (productCount >= maxItems) return;
+                        const product = await fetchProductDetail(url);
+                        if (product) {
+                            // Get price from variants for detail pages
+                            if (!product.price && product.variants?.length > 0) {
+                                product.price = product.variants[0].price;
+                            }
+                            const data = formatProduct(product, url);
+                            await Actor.pushData(data);
+                            productCount++;
+                            log.info(`[PRODUCT] ✓ ${data.brand} - ${data.title} | ${data.price} (${productCount}/${maxItems})`);
+                        }
+                    })
+                );
+            }
         }
 
-        log.info(`[CATEGORY] Done. Total products so far: ${productCount}/${maxItems}`);
+        log.info(`[CATEGORY] Done. Total: ${productCount}/${maxItems}`);
 
-        // If we still need more products, paginate
+        // Paginate if we need more
         if (productCount < maxItems) {
             await enqueueLinks({
                 selector: '.pagination a, a.next',
@@ -187,20 +247,14 @@ const crawler = new PlaywrightCrawler({
             }
         }
     ],
-    browserPoolOptions: {
-        useFingerprints: true
-    },
+    browserPoolOptions: { useFingerprints: true },
     launchContext: {
         useChrome: true,
-        launchOptions: {
-            args: ['--disable-blink-features=AutomationControlled']
-        }
+        launchOptions: { args: ['--disable-blink-features=AutomationControlled'] }
     }
 });
 
 log.info('Starting the crawl.');
-const urls = startUrls.map((req: any) => req.url);
-await crawler.run(urls);
-log.info(`Crawl finished. Total products scraped: ${productCount}`);
-
+await crawler.run(startUrls.map((req: any) => req.url));
+log.info(`Crawl finished. Total products: ${productCount}`);
 await Actor.exit();
