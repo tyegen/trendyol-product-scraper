@@ -5,7 +5,7 @@
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
-    "start": "npm run build && node dist/main.js",
+    "start": "node dist/main.js",
     "start:dev": "npm run build && node dist/main.js",
     "build": "tsc"
   },
