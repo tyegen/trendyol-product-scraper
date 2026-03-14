@@ -9,8 +9,9 @@ router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
     log.info(`[CATEGORY] Processing ${request.url}`);
     
     // Take a screenshot to debug
-    await page.screenshot({ path: 'debug.png' });
-    log.info(`Saved screenshot to debug.png`);
+    const screenshot = await page.screenshot();
+    await Actor.setValue('debug-screenshot', screenshot, { contentType: 'image/png' });
+    log.info(`Saved screenshot to KeyValueStore as debug-screenshot`);
 
     // Wait for product cards to load in the DOM
     await page.waitForSelector('.p-card-chldrn-cntnr, .p-card-wrppr', { timeout: 15000 }).catch(() => {
@@ -19,10 +20,10 @@ router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
 
     const cardHtml = await page.evaluate(() => {
         const el = document.querySelector('.p-card-wrppr, .p-card-chldrn-cntnr');
-        return el ? el.outerHTML : 'No card found';
+        return el ? el.outerHTML : document.body.innerHTML; // Dump full HTML if cards not found
     });
-    fs.writeFileSync('product-card.html', cardHtml);
-    log.info(`[CATEGORY] Dumped product card HTML`);
+    await Actor.setValue('debug-html', cardHtml, { contentType: 'text/html' });
+    log.info(`[CATEGORY] Dumped HTML to KeyValueStore as debug-html`);
 
     // Find and enqueue product links
     const enqueued = await enqueueLinks({
