@@ -26,49 +26,45 @@ let productCount = 0;
  */
 function formatProduct(p: any, url: string) {
     // === PRICE ===
-    // Category: singlePrice.salePrice = "19.056,05 TL"
-    //           price.discountedPrice = 19056.05 (NUMBER, not object!)
-    //           price.discountedPriceText = "19.056,05"
-    // Detail:   variants[0].price = {value, text}
     let price = '';
     let priceValue: number | null = null;
-    
-    // Path 1: singlePrice.salePrice (category - best, includes currency)
     if (p.singlePrice?.salePrice) {
         price = p.singlePrice.salePrice;
         priceValue = typeof p.price?.discountedPrice === 'number' ? p.price.discountedPrice : null;
-    }
-    // Path 2: price.discountedPriceText (category - fallback)  
-    else if (p.price?.discountedPriceText) {
+    } else if (p.price?.discountedPriceText) {
         price = p.price.discountedPriceText + ' ' + (p.price.currencySymbol || 'TL');
         priceValue = typeof p.price.discountedPrice === 'number' ? p.price.discountedPrice : null;
-    }
-    // Path 3: price.text (flat - detail page variant)
-    else if (p.price?.text) {
+    } else if (p.price?.text) {
         price = p.price.text;
         priceValue = p.price.value;
-    }
-    // Path 4: variants[0].price.text (detail page)
-    else if (p.variants?.[0]?.price?.text) {
+    } else if (p.variants?.[0]?.price?.text) {
         price = p.variants[0].price.text;
         priceValue = p.variants[0].price.value;
     }
     
     // === BRAND ===
-    // Category: string ("Roborock")
-    // Detail: object ({name: "Roborock"})
     const brand = typeof p.brand === 'string' ? p.brand : (p.brand?.name || '');
     
+    // === RATINGS & FAVORITES ===
+    // In category listing, commentCount is often missing, but totalCount (ratings) is present
+    const ratingCount = p.ratingScore?.totalCount || 0;
+    let commentCount = p.ratingScore?.commentCount || ratingCount; // Fallback to rating count
+    let favoriteCount = p.favoriteCount || 0;
+    
+    // Greedy parsing for favoriteCount from socialProof text (e.g., "10.000+ kişi favoriledi")
+    if (!favoriteCount && p.socialProof?.text) {
+        const match = p.socialProof.text.match(/([\d.]+)\+?\s*kişi\s*favoriledi/i);
+        if (match) {
+            favoriteCount = parseInt(match[1].replace(/\./g, ''));
+        }
+    }
+
     // === THUMBNAIL ===
-    // Category: p.image = direct URL
-    // Detail: p.images = array of paths
     const thumbnail = p.image || p.images?.[0] || '';
     const thumbnailUrl = thumbnail.startsWith('http') ? thumbnail : (thumbnail ? `https://cdn.dsmcdn.com${thumbnail}` : '');
     
     // === SELLER ===
-    // Category: p.merchantId (number at top level)
-    // Detail: p.merchantListing.merchant.{name, id}
-    const sellerName = p.merchantListing?.merchant?.name || '';
+    const sellerName = p.merchantListing?.merchant?.name || p.merchantName || '';
     const sellerId = p.merchantId ? String(p.merchantId) : (p.merchantListing?.merchant?.id ? String(p.merchantListing.merchant.id) : '');
     
     // === URL ===
@@ -88,9 +84,9 @@ function formatProduct(p: any, url: string) {
         category: p.category?.name || '',
         categoryHierarchy: p.category?.hierarchy || '',
         ratingAvg: p.ratingScore?.averageRating ? Number(p.ratingScore.averageRating.toFixed(2)) : null,
-        ratingCount: p.ratingScore?.totalCount || 0,
-        commentCount: p.ratingScore?.commentCount || 0,
-        favoriteCount: p.favoriteCount || 0,
+        ratingCount,
+        commentCount,
+        favoriteCount,
         inStock: p.inStock ?? (p.stock?.hasStock ?? true),
         freeCargo: p.freeCargo ?? false,
         url: productUrl,
@@ -187,6 +183,7 @@ const crawler = new PlaywrightCrawler({
                                 inStock: p.inStock,
                                 freeCargo: p.freeCargo,
                                 url: p.url,
+                                socialProof: p.socialProof ? JSON.parse(JSON.stringify(p.socialProof)) : null,
                                 stock: p.stock ? JSON.parse(JSON.stringify(p.stock)) : null,
                             };
                         }
