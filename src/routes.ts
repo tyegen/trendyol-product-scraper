@@ -59,12 +59,14 @@ router.addHandler('detail', async ({ request, page, log }) => {
             
             if (props && props.product) {
                 const p = props.product;
+                // Price can be at product.price OR product.variants[0].price
+                const priceObj = p.price || (p.variants && p.variants[0]?.price) || {};
                 return {
                     name: p.name || '',
                     brand: p.brand?.name || '',
-                    price: p.price?.discountedPrice?.text || p.price?.sellingPrice?.text || '',
-                    priceValue: p.price?.discountedPrice?.value || p.price?.sellingPrice?.value || null,
-                    originalPrice: p.price?.originalPrice?.text || '',
+                    price: priceObj.discountedPrice?.text || priceObj.sellingPrice?.text || '',
+                    priceValue: priceObj.discountedPrice?.value || priceObj.sellingPrice?.value || null,
+                    originalPrice: priceObj.originalPrice?.text || '',
                     productId: String(p.id || ''),
                     contentId: String(p.contentId || ''),
                     images: (p.images || []).map((url: string) => 
@@ -84,12 +86,13 @@ router.addHandler('detail', async ({ request, page, log }) => {
             for (const key of Object.keys(w)) {
                 if (key.includes('PROPS') && w[key]?.product) {
                     const p = w[key].product;
+                    const priceObj = p.price || (p.variants && p.variants[0]?.price) || {};
                     return {
                         name: p.name || '',
                         brand: p.brand?.name || '',
-                        price: p.price?.discountedPrice?.text || p.price?.sellingPrice?.text || '',
-                        priceValue: p.price?.discountedPrice?.value || p.price?.sellingPrice?.value || null,
-                        originalPrice: p.price?.originalPrice?.text || '',
+                        price: priceObj.discountedPrice?.text || priceObj.sellingPrice?.text || '',
+                        priceValue: priceObj.discountedPrice?.value || priceObj.sellingPrice?.value || null,
+                        originalPrice: priceObj.originalPrice?.text || '',
                         productId: String(p.id || ''),
                         contentId: String(p.contentId || ''),
                         images: (p.images || []).map((url: string) => 
