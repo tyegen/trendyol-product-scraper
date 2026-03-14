@@ -45,89 +45,92 @@ router.addHandler('detail', async ({ request, page, log }) => {
     log.info(`[PRODUCT] Extracting: ${request.url}`);
 
     try {
-        // Wait for h1 (the product title) instead of a specific class
-        await page.waitForSelector('h1', { timeout: 15000 }).catch(() => {
-            log.warning(`[PRODUCT] h1 tag didn't load for ${request.url}`);
-        });
+        // Wait for content to load 
+        await page.waitForLoadState('domcontentloaded');
+        await page.waitForTimeout(3000); // Allow hydration scripts to execute
 
-        // Debug: Dump product HTML
-        const detailHtml = await page.evaluate(() => document.body.innerHTML);
-        await Actor.setValue('debug-detail-html', detailHtml, { contentType: 'text/html' });
-
-        // Extract basic data
-        const titleAndBrand = await page.evaluate(() => {
-            const h1 = document.querySelector('h1');
-            const h1Clone = h1 ? h1.cloneNode(true) as HTMLElement : null;
+        // Extract product data from the embedded JSON blob
+        // Trendyol embeds all product data in: window["__envoy_product-detail__PROPS"]
+        const productData = await page.evaluate(() => {
+            const w = window as any;
+            // Try the envoy props first (new structure)
+            const propsKey = '__envoy_product-detail__PROPS';
+            const props = w[propsKey];
             
-            // Typical Trendyol structure: <h1> <a href="...">Brand</a> Title text </h1>
-            let brand = '';
-            let title = h1 ? h1.textContent?.trim() || '' : '';
+            if (props && props.product) {
+                const p = props.product;
+                return {
+                    name: p.name || '',
+                    brand: p.brand?.name || '',
+                    price: p.price?.discountedPrice?.text || p.price?.sellingPrice?.text || '',
+                    priceValue: p.price?.discountedPrice?.value || p.price?.sellingPrice?.value || null,
+                    originalPrice: p.price?.originalPrice?.text || '',
+                    productId: String(p.id || ''),
+                    contentId: String(p.contentId || ''),
+                    images: (p.images || []).map((url: string) => 
+                        url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
+                    ),
+                    seller: {
+                        name: p.merchant?.name || null,
+                        id: String(p.merchant?.id || ''),
+                    },
+                    category: p.category?.name || '',
+                    ratingScore: p.ratingScore || null,
+                    found: true,
+                };
+            }
             
-            if (h1Clone) {
-                const brandEl = h1Clone.querySelector('a');
-                if (brandEl) {
-                    brand = brandEl.textContent?.trim() || '';
-                    title = h1Clone.textContent?.replace(brand, '').trim() || title;
-                } else if (h1Clone.querySelector('span')) {
-                    brand = h1Clone.querySelector('span')?.textContent?.trim() || '';
+            // Fallback: search all window props for product data
+            for (const key of Object.keys(w)) {
+                if (key.includes('PROPS') && w[key]?.product) {
+                    const p = w[key].product;
+                    return {
+                        name: p.name || '',
+                        brand: p.brand?.name || '',
+                        price: p.price?.discountedPrice?.text || p.price?.sellingPrice?.text || '',
+                        priceValue: p.price?.discountedPrice?.value || p.price?.sellingPrice?.value || null,
+                        originalPrice: p.price?.originalPrice?.text || '',
+                        productId: String(p.id || ''),
+                        contentId: String(p.contentId || ''),
+                        images: (p.images || []).map((url: string) => 
+                            url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
+                        ),
+                        seller: {
+                            name: p.merchant?.name || null,
+                            id: String(p.merchant?.id || ''),
+                        },
+                        category: p.category?.name || '',
+                        ratingScore: p.ratingScore || null,
+                        found: true,
+                    };
                 }
             }
-            return { title, brand };
+            
+            return { found: false, name: '', brand: '', price: '', priceValue: null, originalPrice: '', productId: '', contentId: '', images: [], seller: { name: null, id: '' }, category: '', ratingScore: null };
         });
 
-        const priceStr = await page.evaluate(() => {
-            // Find anything that looks like price
-            const els = Array.from(document.querySelectorAll('span, div'))
-                .filter(el => el.textContent?.includes('TL') && el.className.includes('prc'));
-            
-            for (const el of els) {
-                if (el.className.includes('slg') || el.className.includes('dsc')) {
-                    return el.textContent?.trim();
-                }
-            }
-            return els.length > 0 ? els[0].textContent?.trim() : '';
-        });
-        
-        // Product ID is usually in the URL (...-p-12345)
+        // Product ID fallback from URL
         const productIdMatch = request.url.match(/-p-(\d+)/);
-        const productId = productIdMatch ? productIdMatch[1] : null;
+        const productId = productData.productId || (productIdMatch ? productIdMatch[1] : null);
 
-        // Seller information
-        const sellerInfo = await page.evaluate(() => {
-            const linkEl = document.querySelector('a[href*="merchantId="]');
-            const name = linkEl ? linkEl.textContent?.trim() : null;
-            let id = null;
-            if (linkEl) {
-                const href = linkEl.getAttribute('href');
-                const match = href?.match(/merchantId=(\d+)/);
-                if (match) id = match[1];
-            }
-            return { name, id };
-        });
-
-        // Images
-        const images = await page.evaluate(() => {
-            const imgs = Array.from(document.querySelectorAll('img'));
-            return imgs.map(img => img.getAttribute('src'))
-                .filter(src => src && src.includes('product/media/images'))
-                .map(src => src!.startsWith('http') ? src! : `https://cdn.dsmcdn.com${src}`);
-        });
-
-        // Push extracted data to Apify dataset
-        if (titleAndBrand.title && priceStr) {
+        if (productData.found && productData.name && productData.price) {
             await Actor.pushData({
                 url: request.url,
                 productId,
-                title: titleAndBrand.title,
-                brand: titleAndBrand.brand,
-                price: priceStr,
-                seller: sellerInfo,
-                images: [...new Set(images)], // unique images
+                title: productData.name,
+                brand: productData.brand,
+                price: productData.price,
+                priceValue: productData.priceValue,
+                originalPrice: productData.originalPrice,
+                seller: productData.seller,
+                category: productData.category,
+                ratingScore: productData.ratingScore,
+                images: [...new Set(productData.images)],
                 scrapedAt: new Date().toISOString()
             });
-            log.info(`[PRODUCT] Saved: ${titleAndBrand.brand} - ${titleAndBrand.title} (${priceStr})`);
+            log.info(`[PRODUCT] Saved: ${productData.brand} - ${productData.name} (${productData.price})`);
         } else {
-            log.warning(`[PRODUCT] Missing title or price for ${request.url}`);
+            log.warning(`[PRODUCT] Missing product data for ${request.url}. Found: ${productData.found}, Name: "${productData.name}", Price: "${productData.price}"`);
         }
     } catch (e: any) {
         log.error(`[PRODUCT] Failed to extract data for ${request.url}: ${e.message}`);
