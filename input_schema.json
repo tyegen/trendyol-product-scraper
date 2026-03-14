@@ -8,7 +8,7 @@
             "title": "Start URLs",
             "type": "array",
             "description": "List of Trendyol URLs to scrape (can be category, search results, or specific product pages).",
-            "editor": "requestListEditor",
+            "editor": "requestListSources",
             "prefill": [
                 { "url": "https://www.trendyol.com/sr?q=laptop" }
             ]
