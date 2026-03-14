@@ -29,16 +29,36 @@ const crawler = new PlaywrightCrawler({
     // Adding anti-scraping headers and browser fingerprinting
     preNavigationHooks: [
         async ({ request, page }, gotoOptions) => {
+            // Set realistic headers
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
+            });
+
             // Wait until domcontentloaded to handle heavy CSR pages faster than networkidle
             if (gotoOptions) {
                 gotoOptions.waitUntil = 'domcontentloaded';
             }
         }
     ],
-    // Helps with Cloudflare
+    // Helps with Cloudflare by using actual Chrome instead of Chromium 
+    // and randomizing browser fingerprints
     browserPoolOptions: {
         useFingerprints: true,
+        sessionOptions: {
+            maxUsageCount: 5 // Rotate sessions quickly
+        }
     },
+    launchContext: {
+        useChrome: true, // Use real Chrome executable
+        launchOptions: {
+            args: ['--disable-blink-features=AutomationControlled']
+        }
+    }
 });
 
 log.info('Starting the crawl.');
