@@ -21,49 +21,83 @@ const proxyConfig = proxyConfiguration
 let productCount = 0;
 
 /**
- * Extract product listing data from a product object (from either category or detail page)
+ * Extract product data from a product object.
+ * Handles BOTH category listing format and detail page format.
  */
 function formatProduct(p: any, url: string) {
-    // Price: try flat first, then nested
+    // === PRICE ===
+    // Category listing: p.price could be {discountedPrice: {text}, sellingPrice: {text}}
+    //                   p.singlePrice could be {text, value}
+    // Detail page: variants[0].price = {value, text} (flat)
     let price = '';
     let priceValue: number | null = null;
     
-    if (p.price?.text) {
+    // Try singlePrice first (category listing shortcut)
+    if (p.singlePrice?.text) {
+        price = p.singlePrice.text;
+        priceValue = p.singlePrice.value;
+    }
+    // Try price.text (flat)
+    else if (p.price?.text) {
         price = p.price.text;
         priceValue = p.price.value;
-    } else if (p.price?.discountedPrice?.text) {
+    }
+    // Try price.discountedPrice.text (nested)
+    else if (p.price?.discountedPrice?.text) {
         price = p.price.discountedPrice.text;
         priceValue = p.price.discountedPrice.value;
-    } else if (p.price?.sellingPrice?.text) {
+    }
+    // Try price.sellingPrice.text (nested)
+    else if (p.price?.sellingPrice?.text) {
         price = p.price.sellingPrice.text;
         priceValue = p.price.sellingPrice.value;
     }
+    // Try variants[0].price (detail page)
+    else if (p.variants?.[0]?.price?.text) {
+        price = p.variants[0].price.text;
+        priceValue = p.variants[0].price.value;
+    }
     
-    // Thumbnail
-    const rawImages = p.images || p.imageUrl ? [p.imageUrl] : [];
-    const imgList = Array.isArray(p.images) ? p.images : rawImages;
-    const firstImage = imgList[0] || p.imageUrl || '';
-    const thumbnail = firstImage 
-        ? (firstImage.startsWith('http') ? firstImage : `https://cdn.dsmcdn.com${firstImage}`)
-        : '';
+    // === BRAND ===
+    // Category: string ("Roborock")
+    // Detail: object ({name: "Roborock"})
+    const brand = typeof p.brand === 'string' ? p.brand : (p.brand?.name || '');
+    
+    // === THUMBNAIL ===
+    // Category: p.image = direct URL
+    // Detail: p.images = array of paths
+    const thumbnail = p.image || p.images?.[0] || '';
+    const thumbnailUrl = thumbnail.startsWith('http') ? thumbnail : (thumbnail ? `https://cdn.dsmcdn.com${thumbnail}` : '');
+    
+    // === SELLER ===
+    // Category: p.merchantId (number at top level)
+    // Detail: p.merchantListing.merchant.{name, id}
+    const sellerName = p.merchantListing?.merchant?.name || '';
+    const sellerId = p.merchantId ? String(p.merchantId) : (p.merchantListing?.merchant?.id ? String(p.merchantListing.merchant.id) : '');
+    
+    // === URL ===
+    const productUrl = p.url 
+        ? (p.url.startsWith('http') ? p.url : `https://www.trendyol.com${p.url}`)
+        : url;
     
     return {
-        thumbnail,
-        productId: String(p.id || ''),
+        thumbnail: thumbnailUrl,
+        productId: String(p.id || p.contentId || ''),
         title: p.name || '',
-        brand: p.brand?.name || p.brandName || '',
+        brand,
         price: price || 'N/A',
         priceValue,
-        sellerName: p.merchantListing?.merchant?.name || p.merchantName || '',
-        sellerId: p.merchantListing?.merchant?.id ? String(p.merchantListing.merchant.id) : (p.merchantId ? String(p.merchantId) : ''),
-        category: p.category?.name || p.categoryName || '',
-        categoryHierarchy: p.category?.hierarchy || p.categoryHierarchy || '',
+        sellerId,
+        sellerName,
+        category: p.category?.name || '',
+        categoryHierarchy: p.category?.hierarchy || '',
         ratingAvg: p.ratingScore?.averageRating ? Number(p.ratingScore.averageRating.toFixed(2)) : null,
         ratingCount: p.ratingScore?.totalCount || 0,
         commentCount: p.ratingScore?.commentCount || 0,
         favoriteCount: p.favoriteCount || 0,
-        inStock: p.inStock ?? true,
-        url,
+        inStock: p.inStock ?? (p.stock?.hasStock ?? true),
+        freeCargo: p.freeCargo ?? false,
+        url: productUrl,
         scrapedAt: new Date().toISOString()
     };
 }
@@ -154,21 +188,13 @@ const crawler = new PlaywrightCrawler({
         });
 
         if (categoryData.products && categoryData.products.length > 0) {
-            // SUCCESS! Extract products directly from category page
             log.info(`[CATEGORY] Found ${categoryData.products.length} products in ${categoryData.source}`);
-            log.info(`[DEBUG] First product keys: ${(categoryData as any).firstProductKeys?.join(', ')}`);
-            log.info(`[DEBUG] First product sample: ${(categoryData as any).firstProductSample}`);
             
             const remaining = maxItems - productCount;
             const productsToSave = categoryData.products.slice(0, remaining);
             
             for (const p of productsToSave) {
-                // Build product URL from id/name
-                const productUrl = p.url 
-                    ? (p.url.startsWith('http') ? p.url : `https://www.trendyol.com${p.url}`)
-                    : request.url;
-                
-                const data = formatProduct(p, productUrl);
+                const data = formatProduct(p, request.url);
                 await Actor.pushData(data);
                 productCount++;
                 log.info(`[PRODUCT] ✓ ${data.brand} - ${data.title} | ${data.price} (${productCount}/${maxItems})`);
