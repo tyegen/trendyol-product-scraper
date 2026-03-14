@@ -45,26 +45,15 @@ function formatProduct(p: any, url: string) {
     // === BRAND ===
     const brand = typeof p.brand === 'string' ? p.brand : (p.brand?.name || '');
     
-    // === RATINGS & FAVORITES ===
-    // In category listing, commentCount is often missing, but totalCount (ratings) is present
+    // === RATINGS ===
     const ratingCount = p.ratingScore?.totalCount || 0;
-    let commentCount = p.ratingScore?.commentCount || ratingCount; // Fallback to rating count
-    let favoriteCount = p.favoriteCount || 0;
-    
-    // Greedy parsing for favoriteCount from socialProof text (e.g., "10.000+ kişi favoriledi")
-    if (!favoriteCount && p.socialProof?.text) {
-        const match = p.socialProof.text.match(/([\d.]+)\+?\s*kişi\s*favoriledi/i);
-        if (match) {
-            favoriteCount = parseInt(match[1].replace(/\./g, ''));
-        }
-    }
+    const ratingAvg = p.ratingScore?.averageRating ? Number(p.ratingScore.averageRating.toFixed(2)) : null;
 
     // === THUMBNAIL ===
     const thumbnail = p.image || p.images?.[0] || '';
     const thumbnailUrl = thumbnail.startsWith('http') ? thumbnail : (thumbnail ? `https://cdn.dsmcdn.com${thumbnail}` : '');
     
-    // === SELLER ===
-    const sellerName = p.merchantListing?.merchant?.name || p.merchantName || '';
+    // === SELLER ID ===
     const sellerId = p.merchantId ? String(p.merchantId) : (p.merchantListing?.merchant?.id ? String(p.merchantListing.merchant.id) : '');
     
     // === URL ===
@@ -80,13 +69,9 @@ function formatProduct(p: any, url: string) {
         price: price || 'N/A',
         priceValue,
         sellerId,
-        sellerName,
         category: p.category?.name || '',
-        categoryHierarchy: p.category?.hierarchy || '',
-        ratingAvg: p.ratingScore?.averageRating ? Number(p.ratingScore.averageRating.toFixed(2)) : null,
+        ratingAvg,
         ratingCount,
-        commentCount,
-        favoriteCount,
         inStock: p.inStock ?? (p.stock?.hasStock ?? true),
         freeCargo: p.freeCargo ?? false,
         url: productUrl,
