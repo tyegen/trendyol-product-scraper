@@ -13,28 +13,29 @@ router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
     await Actor.setValue('debug-screenshot', screenshot, { contentType: 'image/png' });
     log.info(`Saved screenshot to KeyValueStore as debug-screenshot`);
 
-    // Wait for the main content or links to appear (more generic)
-    await page.waitForSelector('a[href*="-p-"]', { timeout: 15000 }).catch(() => {
+    // Wait for the main content or links to appear (more generic, 'product-card' is their new class)
+    await page.waitForSelector('.product-card, a[href*="-p-"]', { timeout: 15000 }).catch(() => {
         log.warning(`[CATEGORY] Product links didn't load for ${request.url}`);
     });
 
     const cardHtml = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href*="-p-"]'));
+        const links = Array.from(document.querySelectorAll('.product-card, a[href*="-p-"]'));
         return links.length > 0 ? "Found " + links.length + " links" : document.body.innerHTML; 
     });
     await Actor.setValue('debug-html', cardHtml, { contentType: 'text/html' });
     log.info(`[CATEGORY] Dumped HTML to KeyValueStore as debug-html`);
 
-    // Find and enqueue product links using globs to bypass CSS class changes
+    // Find and enqueue product links using precise CSS class from the debug-html file
     const enqueued = await enqueueLinks({
-        globs: ['https://www.trendyol.com/*-p-*'],
+        selector: '.product-card',
         label: 'detail',
     });
     
     log.info(`[CATEGORY] Enqueued ${enqueued.processedRequests.length} products from ${request.url}`);
 
-    // Handle pagination (find any link that has ?pi= or page=)
+    // Handle pagination
     await enqueueLinks({
+        selector: '.pagination a, a.next',
         globs: ['https://www.trendyol.com/*?pi=*', 'https://www.trendyol.com/*&pi=*'],
     });
 });
