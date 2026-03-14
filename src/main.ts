@@ -48,10 +48,7 @@ const crawler = new PlaywrightCrawler({
     // Helps with Cloudflare by using actual Chrome instead of Chromium 
     // and randomizing browser fingerprints
     browserPoolOptions: {
-        useFingerprints: true,
-        sessionOptions: {
-            maxUsageCount: 5 // Rotate sessions quickly
-        }
+        useFingerprints: true
     },
     launchContext: {
         useChrome: true, // Use real Chrome executable
