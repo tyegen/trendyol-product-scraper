@@ -1,6 +1,6 @@
 # Use the Apify Node.js image with embedded Playwright
 # https://hub.docker.com/r/apify/actor-node-playwright-chrome
-FROM apify/actor-node-playwright-chrome:18
+FROM apify/actor-node-playwright-chrome:20
 
 # Copy package.json and install dependencies
 COPY package*.json ./
