@@ -1,0 +1,31 @@
+{
+    "title": "Trendyol Product Scraper",
+    "description": "Scrapes product data from Trendyol.com.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "startUrls": {
+            "title": "Start URLs",
+            "type": "array",
+            "description": "List of Trendyol URLs to scrape (can be category, search results, or specific product pages).",
+            "editor": "requestListEditor",
+            "prefill": [
+                { "url": "https://www.trendyol.com/sr?q=laptop" }
+            ]
+        },
+        "maxItems": {
+            "title": "Max Items",
+            "type": "integer",
+            "description": "Maximum number of items to scrape.",
+            "default": 100,
+            "minimum": 1
+        },
+        "proxyConfiguration": {
+            "title": "Proxy Configuration",
+            "type": "object",
+            "description": "Choose your proxy settings. TR residential proxies are highly recommended.",
+            "editor": "proxy"
+        }
+    },
+    "required": ["startUrls"]
+}

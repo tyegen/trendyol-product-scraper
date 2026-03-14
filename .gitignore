@@ -1,0 +1,7 @@
+node_modules/
+dist/
+storage/
+.env
+debug.html
+debug.png
+product-card.html

@@ -1,0 +1,11 @@
+{
+    "actorSpecification": 1,
+    "name": "trendyol-product-scraper",
+    "title": "Trendyol Product Scraper",
+    "description": "Scrape product details from Trendyol including name, price, brand, seller, and more.",
+    "version": "1.0.0",
+    "meta": {
+        "templateId": "project-empty"
+    },
+    "dockerfile": "./Dockerfile"
+}
