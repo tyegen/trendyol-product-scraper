@@ -155,13 +155,10 @@ const crawler = new PlaywrightCrawler({
             const w = window as any;
             const keys = Object.keys(w).filter(k => k.includes('PROPS'));
 
-            // Search for any PROPS that contains a product list
             for (const key of keys) {
                 const val = w[key];
                 if (!val) continue;
                 
-                // Check common patterns for search/listing results
-                // Could be: val.products, val.searchResult, val.result.products, etc.
                 let products: any[] | null = null;
                 
                 if (Array.isArray(val.products)) products = val.products;
@@ -172,19 +169,41 @@ const crawler = new PlaywrightCrawler({
                 else if (val.content?.products) products = val.content.products;
                 
                 if (products && products.length > 0) {
+                    // IMPORTANT: Force serialization via JSON to avoid Playwright proxy issues
+                    // window objects can be proxied and Playwright can't serialize them directly
+                    const serialized = products.map((p: any) => {
+                        try {
+                            return JSON.parse(JSON.stringify(p));
+                        } catch {
+                            // Manual extraction as fallback
+                            return {
+                                id: p.id,
+                                name: p.name,
+                                brand: p.brand,
+                                brandId: p.brandId,
+                                price: p.price ? JSON.parse(JSON.stringify(p.price)) : null,
+                                singlePrice: p.singlePrice ? JSON.parse(JSON.stringify(p.singlePrice)) : null,
+                                image: p.image,
+                                merchantId: p.merchantId,
+                                category: p.category ? { name: p.category.name, id: p.category.id } : null,
+                                ratingScore: p.ratingScore ? JSON.parse(JSON.stringify(p.ratingScore)) : null,
+                                favoriteCount: p.favoriteCount,
+                                inStock: p.inStock,
+                                freeCargo: p.freeCargo,
+                                url: p.url,
+                                stock: p.stock ? JSON.parse(JSON.stringify(p.stock)) : null,
+                            };
+                        }
+                    });
+                    
                     return {
                         source: key,
-                        // Pass first product's keys for debugging
-                        firstProductKeys: Object.keys(products[0]),
-                        firstProductSample: JSON.stringify(products[0]).substring(0, 1000),
-                        // Pass ALL raw product data through
-                        products,
+                        products: serialized,
                     };
                 }
             }
             
-            // Return all PROPS keys for debugging if no products found
-            return { source: null, propsKeys: keys, products: [] };
+            return { source: null, propsKeys: keys, products: [] as any[] };
         });
 
         if (categoryData.products && categoryData.products.length > 0) {
