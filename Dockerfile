@@ -10,11 +10,6 @@ RUN npm --quiet set progress=false \
 # Copy the rest of the source code
 COPY . ./
 
-# Add package.json type
-RUN echo '{"type": "module"}' > package.json.new && \
-    jq -s '.[0] * .[1]' package.json package.json.new > package.json.tmp && \
-    mv package.json.tmp package.json && \
-    rm package.json.new
 
 # Run the project
 CMD npm start
