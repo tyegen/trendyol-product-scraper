@@ -13,30 +13,29 @@ router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
     await Actor.setValue('debug-screenshot', screenshot, { contentType: 'image/png' });
     log.info(`Saved screenshot to KeyValueStore as debug-screenshot`);
 
-    // Wait for product cards to load in the DOM
-    await page.waitForSelector('.p-card-chldrn-cntnr, .p-card-wrppr', { timeout: 15000 }).catch(() => {
-        log.warning(`[CATEGORY] Product cards didn't load for ${request.url}`);
+    // Wait for the main content or links to appear (more generic)
+    await page.waitForSelector('a[href*="-p-"]', { timeout: 15000 }).catch(() => {
+        log.warning(`[CATEGORY] Product links didn't load for ${request.url}`);
     });
 
     const cardHtml = await page.evaluate(() => {
-        const el = document.querySelector('.p-card-wrppr, .p-card-chldrn-cntnr');
-        return el ? el.outerHTML : document.body.innerHTML; // Dump full HTML if cards not found
+        const links = Array.from(document.querySelectorAll('a[href*="-p-"]'));
+        return links.length > 0 ? "Found " + links.length + " links" : document.body.innerHTML; 
     });
     await Actor.setValue('debug-html', cardHtml, { contentType: 'text/html' });
     log.info(`[CATEGORY] Dumped HTML to KeyValueStore as debug-html`);
 
-    // Find and enqueue product links
+    // Find and enqueue product links using globs to bypass CSS class changes
     const enqueued = await enqueueLinks({
-        selector: '.p-card-wrppr a, .p-card-chldrn-cntnr a',
+        globs: ['https://www.trendyol.com/*-p-*'],
         label: 'detail',
     });
     
     log.info(`[CATEGORY] Enqueued ${enqueued.processedRequests.length} products from ${request.url}`);
 
-    // Handle pagination (usually ?pi=2 or similar queries)
-    // Try to find the next page arrow or pagination links
+    // Handle pagination (find any link that has ?pi= or page=)
     await enqueueLinks({
-        selector: 'a.slc-title, a.next-page', // Adjust css selectors if needed
+        globs: ['https://www.trendyol.com/*?pi=*', 'https://www.trendyol.com/*&pi=*'],
     });
 });
 
