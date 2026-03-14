@@ -2,7 +2,7 @@ import { Actor } from 'apify';
 import { PlaywrightCrawler, log } from 'crawlee';
 import { router } from './routes.js';
 
-log.setLevel(log.LEVELS.DEBUG);
+log.setLevel(log.LEVELS.INFO);
 await Actor.init();
 
 const input = await Actor.getInput<{ startUrls: any[]; maxItems?: number; proxyConfiguration?: any }>();
@@ -10,7 +10,7 @@ if (!input || !input.startUrls) {
     throw new Error('Input is missing startUrls');
 }
 
-console.log('INPUT IS:', JSON.stringify(input, null, 2));
+log.info(`Input: ${input.startUrls.length} URLs, maxItems: ${input.maxItems || 100}`);
 
 const { startUrls, maxItems = 100, proxyConfiguration } = input;
 

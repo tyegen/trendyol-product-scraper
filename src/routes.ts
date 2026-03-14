@@ -1,31 +1,18 @@
 import { createPlaywrightRouter } from 'crawlee';
 import { Actor } from 'apify';
-import * as fs from 'fs';
 
 export const router = createPlaywrightRouter();
 
-// Default handler for category/search pages
+// Default handler for category/search pages (needs Playwright for anti-bot)
 router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
     log.info(`[CATEGORY] Processing ${request.url}`);
-    
-    // Take a screenshot to debug
-    const screenshot = await page.screenshot();
-    await Actor.setValue('debug-screenshot', screenshot, { contentType: 'image/png' });
-    log.info(`Saved screenshot to KeyValueStore as debug-screenshot`);
 
-    // Wait for the main content or links to appear (more generic, 'product-card' is their new class)
+    // Wait for product cards to appear
     await page.waitForSelector('.product-card, a[href*="-p-"]', { timeout: 15000 }).catch(() => {
         log.warning(`[CATEGORY] Product links didn't load for ${request.url}`);
     });
 
-    const cardHtml = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('.product-card, a[href*="-p-"]'));
-        return links.length > 0 ? "Found " + links.length + " links" : document.body.innerHTML; 
-    });
-    await Actor.setValue('debug-html', cardHtml, { contentType: 'text/html' });
-    log.info(`[CATEGORY] Dumped HTML to KeyValueStore as debug-html`);
-
-    // Find and enqueue product links using precise CSS class from the debug-html file
+    // Enqueue product links
     const enqueued = await enqueueLinks({
         selector: '.product-card',
         label: 'detail',
@@ -41,105 +28,79 @@ router.addDefaultHandler(async ({ request, page, enqueueLinks, log }) => {
 });
 
 // Handler for product detail pages
+// No waitForTimeout - the JSON data is in the initial HTML <script> tags
 router.addHandler('detail', async ({ request, page, log }) => {
     log.info(`[PRODUCT] Extracting: ${request.url}`);
 
     try {
-        // Wait for content to load 
+        // Only wait for initial HTML to arrive - no need to wait for JS rendering
+        // The product data is embedded in <script> tags as server-side rendered JSON
         await page.waitForLoadState('domcontentloaded');
-        await page.waitForTimeout(3000);
 
         // Extract product data from window["__envoy_product-detail__PROPS"]
-        const productData = await page.evaluate(() => {
+        const product = await page.evaluate(() => {
             const w = window as any;
             const props = w['__envoy_product-detail__PROPS'];
-            
-            if (!props?.product) return null;
-            
-            const p = props.product;
-            
-            // Price is at variants[0].price with FLAT structure: {value, text}
-            // NOT nested as {discountedPrice: {value, text}}
-            let priceText = '';
-            let priceValue: number | null = null;
-            
-            // Path 1: Direct product.price (flat)
-            if (p.price?.text) {
-                priceText = p.price.text;
-                priceValue = p.price.value;
-            }
-            // Path 2: Direct product.price (nested - just in case)
-            else if (p.price?.discountedPrice?.text) {
-                priceText = p.price.discountedPrice.text;
-                priceValue = p.price.discountedPrice.value;
-            }
-            
-            // Path 3: variants[0].price (flat)
-            if (!priceText && p.variants?.length > 0) {
-                const vp = p.variants[0].price;
-                if (vp?.text) {
-                    priceText = vp.text;
-                    priceValue = vp.value;
-                } else if (vp?.discountedPrice?.text) {
-                    priceText = vp.discountedPrice.text;
-                    priceValue = vp.discountedPrice.value;
-                }
-            }
-            
-            // Seller comes from merchantListing, not merchant
-            const ml = p.merchantListing;
-            const seller = {
-                name: ml?.merchantName || ml?.name || null,
-                id: ml?.merchantId ? String(ml.merchantId) : (ml?.id ? String(ml.id) : ''),
-            };
-            
-            return {
-                name: p.name || '',
-                brand: p.brand?.name || '',
-                price: priceText,
-                priceValue,
-                productId: String(p.id || ''),
-                contentId: String(p.contentId || ''),
-                images: (p.images || []).map((url: string) => 
-                    url.startsWith('http') ? url : `https://cdn.dsmcdn.com${url}`
-                ),
-                seller,
-                category: p.category?.name || '',
-                categoryHierarchy: p.category?.hierarchy || '',
-                ratingScore: p.ratingScore || null,
-                favoriteCount: p.favoriteCount || 0,
-                inStock: p.inStock ?? true,
-            };
+            return props?.product || null;
         });
-
-        if (!productData) {
+        
+        if (!product) {
             log.warning(`[PRODUCT] No product data found for ${request.url}`);
             return;
         }
-
-        // Product ID fallback from URL
+        
+        // === PRICE: flat structure at variants[0].price = {value, text} ===
+        let price = '';
+        let priceValue: number | null = null;
+        
+        if (product.price?.text) {
+            price = product.price.text;
+            priceValue = product.price.value;
+        } else if (product.variants?.length > 0) {
+            const vp = product.variants[0].price;
+            if (vp?.text) {
+                price = vp.text;
+                priceValue = vp.value;
+            }
+        }
+        
+        // === PRODUCT ID ===
         const productIdMatch = request.url.match(/-p-(\d+)/);
-        const productId = productData.productId || (productIdMatch ? productIdMatch[1] : null);
-
+        const productId = String(product.id || '') || (productIdMatch ? productIdMatch[1] : '');
+        
+        // === THUMBNAIL: first image only ===
+        const rawImages = product.images || [];
+        const firstImage = rawImages[0] || '';
+        const thumbnail = firstImage 
+            ? (firstImage.startsWith('http') ? firstImage : `https://cdn.dsmcdn.com${firstImage}`)
+            : '';
+        
+        // === SELLER from merchantListing ===
+        const ml = product.merchantListing;
+        
+        // === PUSH FLAT DATA ===
         await Actor.pushData({
-            url: request.url,
+            thumbnail,
             productId,
-            title: productData.name,
-            brand: productData.brand,
-            price: productData.price || 'N/A',
-            priceValue: productData.priceValue,
-            seller: productData.seller,
-            category: productData.category,
-            categoryHierarchy: productData.categoryHierarchy,
-            ratingScore: productData.ratingScore,
-            favoriteCount: productData.favoriteCount,
-            inStock: productData.inStock,
-            images: [...new Set(productData.images)],
+            title: product.name || '',
+            brand: product.brand?.name || '',
+            price: price || 'N/A',
+            priceValue,
+            sellerName: ml?.merchantName || ml?.name || '',
+            sellerId: ml?.merchantId ? String(ml.merchantId) : '',
+            category: product.category?.name || '',
+            categoryHierarchy: product.category?.hierarchy || '',
+            ratingAvg: product.ratingScore?.averageRating ? Number(product.ratingScore.averageRating.toFixed(2)) : null,
+            ratingCount: product.ratingScore?.totalCount || 0,
+            commentCount: product.ratingScore?.commentCount || 0,
+            favoriteCount: product.favoriteCount || 0,
+            inStock: product.inStock ?? true,
+            url: request.url,
             scrapedAt: new Date().toISOString()
         });
 
-        log.info(`[PRODUCT] Saved: ${productData.brand} - ${productData.name} (${productData.price || 'N/A'})`);
+        log.info(`[PRODUCT] ✓ ${product.brand?.name || ''} - ${product.name} | ${price || 'N/A'}`);
     } catch (e: any) {
-        log.error(`[PRODUCT] Failed to extract data for ${request.url}: ${e.message}`);
+        log.error(`[PRODUCT] Failed: ${request.url}: ${e.message}`);
     }
 });
